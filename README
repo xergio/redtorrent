@@ -1,0 +1,7 @@
+Simple bittorrent tracker over Django. My intention is to build a dynamic tracker for my friends.
+
+All credits to http://code.google.com/p/django-torrent-tracker
+
+It's being my inspiration.
+
+http://bittorrent.org/beps/bep_0003.html too.
