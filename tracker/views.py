@@ -1,6 +1,8 @@
-
+# -*- coding: utf-8 -*-
+import django
 from django.shortcuts import render_to_response
 from django.http import HttpResponse
+from tracker.models import AnnounceForm
 
 import sys
 import socket
@@ -9,6 +11,10 @@ import redis
 import struct
 
 """
+
+http://bittorrent.org/beps/bep_0003.html
+http://wiki.theory.org/BitTorrentSpecification#Tracker_HTTP.2FHTTPS_Protocol
+
 /announce?
 info_hash=gK%91d%e0%ec%fc%c0G%c1%0a%9bD8%85%a9%99%88%27%da&
 peer_id=-TR2330-fnovv1t92c12&
@@ -25,50 +31,34 @@ event=started
 /scrape?
 info_hash=gK%91d%e0%ec%fc%c0G%c1%0a%9bD8%85%a9%99%88%27%da
 
-[06/Apr/2012 06:08:29] "GET /announce?info_hash=7%cc%08%1fG%60%a6%ab%05%1d%b8%d6%fa%d6%cd%2b%a1gl%98&peer_id=-TR2500-1u2n01ylhvvp&port=51413&uploaded=0&downloaded=0&left=0&numwant=80&key=90ecacb&compact=1&supportcrypto=1&event=started HTTP/1.1" 200 25
-[06/Apr/2012 06:09:30] "GET /announce?info_hash=7%cc%08%1fG%60%a6%ab%05%1d%b8%d6%fa%d6%cd%2b%a1gl%98&peer_id=-TR2500-1u2n01ylhvvp&port=51413&uploaded=0&downloaded=0&left=0&numwant=80&key=90ecacb&compact=1&supportcrypto=1 HTTP/1.1" 200 25
+
+start complete torrent
+[06/Apr/2012 17:07:56] "GET /announce?info_hash=7%cc%08%1fG%60%a6%ab%05%1d%b8%d6%fa%d6%cd%2b%a1gl%98&peer_id=-TR2500-yg8gwwv9z5ao&port=51413&uploaded=0&downloaded=0&left=0&numwant=80&key=5085515f&compact=1&supportcrypto=1&event=started HTTP/1.1" 200 25
+
+ping complete torrent 
+[06/Apr/2012 17:08:57] "GET /announce?info_hash=7%cc%08%1fG%60%a6%ab%05%1d%b8%d6%fa%d6%cd%2b%a1gl%98&peer_id=-TR2500-yg8gwwv9z5ao&port=51413&uploaded=0&downloaded=0&left=0&numwant=80&key=5085515f&compact=1&supportcrypto=1 HTTP/1.1" 200 25
+
+
+start nuevo cliente
+[06/Apr/2012 17:59:56] "GET /announce?info_hash=7%cc%08%1fG%60%a6%ab%05%1d%b8%d6%fa%d6%cd%2b%a1gl%98&peer_id=M7-2-2--%c9d%e2%b2T%85%f8%93%ce%d9%ac%1d&port=15644&uploaded=0&downloaded=0&left=733261824&corrupt=0&key=6C7ED1C1&event=started&numwant=200&compact=1&no_peer_id=1&ipv6=fe80%3a%3a21c%3ab3ff%3afec5%3aa4a1 HTTP/1.1" 200 25
+
 """
 
 def announce(request):
 	try:
+		ann = AnnounceForm(request.GET.dict())
+		ann.ip = request.GET.get('ip') or request.GET.get('ipv6') or request.META.get('REMOTE_ADDR')
+
+		if not ann.is_valid():
+			raise Exception(ann.errors)
+
+		qs = ann.cleaned_data
 		r = redis.StrictRedis(host='localhost')
-		info = {}
+		
+		if qs['event'] not in ['started', 'completed', 'stopped'] and len(qs['event'].strip()) > 0:
+			raise Exception("event '%s' is invalid." % qs['event'])
 
-		info_hash = request.GET.get('info_hash', '')
-		if len(info_hash) < 20:
-			raise Exception("problem with info hash.")
-		info['info_hash'] = info_hash
-
-		if not request.GET.get('peer_id', ''):
-			raise Exception('problem with peer id.')
-		info['peer_id'] = request.GET['peer_id']
-
-		info['ip'] = request.GET.get('ip') or request.META.get('REMOTE_ADDR')
-		try:
-			socket.gethostbyname(info['ip'])
-		except:
-			raise Exception("unable to resolve host name '%s'." % info['ip'])
-
-		for key in ['uploaded', 'downloaded', 'port', 'left']:
-			if request.GET.has_key(key):
-				try:
-					info[key] = int(request.GET[key])
-				except ValueError:
-					raise Exception("argument '%s' has an incorrect type." % key)
-			else:
-				raise Exception("argument '%s' not specified." % key)
-
-		event = request.GET.get('event', '')
-		if event not in ['started', 'completed', 'stopped'] and len(event.strip()) > 0:
-			raise Exception("event '%s' is invalid." % event)
-
-		numwant = request.GET.get('numwant', 50)
-		try:
-			numwant = int(numwant)
-		except ValueError:
-			numwant = 50
-
-		peers = []
+		"""peers = []
 		if request.GET.get('compact'):
 			peers_l = ""
 			for peer in peers:
@@ -82,7 +72,8 @@ def announce(request):
 		else:
 			peers_l = []
 			for peer in peers:
-				peers.append({'ip': peer['ip'], 'port': peer['port'], 'peer id': peer['peer_id']})
+				peers.append({'ip': peer['ip'], 'port': peer['port'], 'peer id': peer['peer_id']})"""
+		peers_l = []
 
 		return HttpResponse(
 			bencode.bencode({
