@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from django import forms
 
+
 class AnnounceForm(forms.Form):
 	info_hash = forms.CharField(max_length=100)
 	peer_id = forms.CharField(max_length=100)
@@ -18,7 +19,14 @@ class AnnounceForm(forms.Form):
 	supportcrypto = forms.BooleanField(required=False, initial=False)
 
 	def clean_event(self):
-		data = self.cleaned_data['event']
-		if data not in ['started', 'completed', 'stopped'] and len(data.strip()) > 0:
-			raise forms.ValidationError("event '%s' is invalid." % data)
-		return data
+		event = self.cleaned_data['event'].strip()
+		if event not in ['started', 'completed', 'stopped'] and len(event) > 0:
+			raise forms.ValidationError("event '%s' is invalid." % event)
+		return event
+
+	def peerid(self):
+		return "redtorrent:peer:"+self.cleaned_data['peer_id']
+
+
+class ScrapeForm(forms.Form):
+	info_hash = forms.CharField(max_length=100)

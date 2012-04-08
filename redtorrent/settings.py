@@ -1,10 +1,10 @@
-# Django settings for redtorrent project.
+# -*- coding: utf-8 -*-
 
 DEBUG = True
 TEMPLATE_DEBUG = DEBUG
 
 ADMINS = (
-    # ('Your Name', 'your_email@example.com'),
+    ('Sergio Álvarez', 'xergio@gmail.com'),
 )
 
 MANAGERS = ADMINS

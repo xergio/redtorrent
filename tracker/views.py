@@ -2,13 +2,14 @@
 import django
 from django.shortcuts import render_to_response
 from django.http import HttpResponse
-from tracker.models import AnnounceForm
+from tracker.models import AnnounceForm, ScrapeForm
 
 import sys
 import socket
 import bencode
 import redis
 import struct
+import time
 
 """
 
@@ -48,40 +49,90 @@ ping nuevo cliente
 """
 
 def announce(request):
-	try:
-		qs = request.GET.copy()
-		qs.update({'ip': request.GET.get('ip') or request.GET.get('ipv6') or request.META.get('REMOTE_ADDR')})
-		ann = AnnounceForm(qs.dict())
+	qs = request.GET.copy()
+	qs.update({'ip': request.GET.get('ip') or request.META.get('REMOTE_ADDR')})
+	ann = AnnounceForm(qs.dict())
 
-		if not ann.is_valid():
-			raise Exception(ann.errors)
+	if not ann.is_valid():
+		raise Exception(ann.errors)
 
-		qs = ann.cleaned_data
-		r = redis.StrictRedis(host='localhost')
+	qs = ann.cleaned_data
+	r = redis.Redis(host='localhost')
+	seeders_key = 'redtracker:seeders:'+ qs['info_hash']
+	leechers_key = 'redtracker:leechers:'+ qs['info_hash']
 
-		"""peers = []
-		if request.GET.get('compact'):
-			peers_l = ""
-			for peer in peers:
-				peers_l += struct.pack('>4sH', socket.inet_aton(peer['ip']), peer['port'])
 
-		elif request.GET.get('no_peer_id'):
-			peers_l = []
-			for peer in peers:
-				peers_ni.append({'ip': peer['ip'], 'port': peer['port']})
+	# save ALL the params!
+	s = qs.copy()
+	s.update({'seen': int(time.time())})
+	r.hmset(ann.peerid(), s)
 
+
+	# save ALL the states!
+	if qs['event'] == 'completed':
+		r.sadd(seeders_key, qs['peer_id'])
+		r.srem(leechers_key, qs['peer_id'])
+
+	elif qs['event'] == 'stopped':
+		r.srem(seeders_key, qs['peer_id'])
+		r.srem(leechers_key, qs['peer_id'])
+		r.delete(ann.peerid())
+
+	else:
+		if qs['left'] == 0:
+			r.sadd(seeders_key, qs['peer_id'])
+			r.srem(leechers_key, qs['peer_id'])
 		else:
-			peers_l = []
-			for peer in peers:
-				peers.append({'ip': peer['ip'], 'port': peer['port'], 'peer id': peer['peer_id']})"""
-		peers_l = []
+			r.sadd(seeders_key, qs['peer_id'])
+			r.sadd(leechers_key, qs['peer_id'])
 
+
+	# get ALL the peers!
+	peer_ids = set()
+	nmembers = r.scard(seeders_key)
+	i = 0
+	if nmembers < qs['numwant']:
+		peer_ids = r.smembers(seeders_key)
+	elif nmembers > 0:
+		while len(peer_ids) < qs['numwant'] and i < 1000:
+			peer_ids.add(r.srandmember(seeders_key))
+			i += 1
+
+	# clean ALL the peers!
+	peers_data = []
+	now = time.time()
+	for peer in peer_ids:
+		data = r.hgetall('redtorrent:peer:'+ peer)
+		if not data or int(data['seen']) < now-(60*3):
+			r.delete('redtorrent:peer:'+ peer)
+			r.srem(seeders_key, peer)
+			r.srem(leechers_key, peer)
+		else:
+			peers_data.append(data)
+
+
+	# send ALL the peers
+	if qs['compact']:
+		peers_l = ""
+		for peer in peers_data:
+			peers_l += struct.pack('>4sH', socket.inet_aton(peer['ip']), int(peer['port']))
+
+	elif qs['no_peer_id']:
+		peers_l = []
+		for peer in peers_data:
+			peers_l.append({'ip': peer['ip'], 'port': int(peer['port'])})
+
+	else:
+		peers_l = peers_data
+
+
+	try:
 		return HttpResponse(
 			bencode.bencode({
 				'interval': 60,
-				'peers': peers_l,
+				'peers': peers_l
 			}),
-			mimetype = 'text/plain'
+			content_type = 'text/plain'
 		)
 
 	except:
@@ -89,17 +140,35 @@ def announce(request):
 
 
 def scrape(request):
-	#r = redis.StrictRedis(host='localhost')
-	raise Exception(request.GET)
-	return render_to_response('announce/scrape.html', {})
+	qs = request.GET.copy()
+	scp = ScrapeForm(qs.dict())
+
+	if not scp.is_valid():
+		raise Exception(scp.errors)
+
+	qs = scp.cleaned_data
+	r = redis.Redis(host='localhost')
+	seeders_key = 'redtracker:seeders:'+ qs['info_hash']
+	leechers_key = 'redtracker:leechers:'+ qs['info_hash']
+
+	return HttpResponse(
+		bencode.bencode({
+			'files': {
+				qs['info_hash']: {
+					'complete': r.sdiffstore('tmp', seeders_key, leechers_key), 
+					'incomplete': r.scard(leechers_key), 
+					'downloaded': 0 #TODO
+				}
+			}
+		}),
+		content_type = 'text/plain'
+	)
 
 
-def response_fail(reason, xhr=False):
-	raise Exception(reason)
-	if not xhr:
-		return HttpResponse(bencode.bencode({'failure reason': reason or 'unknown'}))
+def response_fail(reason):
+	return HttpResponse(
+		bencode.bencode({'failure reason': reason or 'unknown'}), 
+		content_type = 'text/plain'
+	)
 
-	r = HttpResponse(mimetype="text/xml")
-	r.write("""<?xml version="1.0" encoding="UTF-8"?>""")
-	r.write("""<result><msg>failure</msg></result>""")
-	return r
+
