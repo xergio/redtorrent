@@ -17,6 +17,7 @@ class AnnounceForm(forms.Form):
 	key = forms.CharField(max_length=20, required=False)
 	trackerid = forms.CharField(max_length=20, required=False)
 	supportcrypto = forms.BooleanField(required=False, initial=False)
+	requirecrypto = forms.BooleanField(required=False, initial=False)
 
 	def clean_event(self):
 		event = self.cleaned_data['event'].strip()

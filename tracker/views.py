@@ -103,7 +103,7 @@ def announce(request):
 	now = time.time()
 	for peer in peer_ids:
 		data = r.hgetall('redtorrent:peer:'+ peer)
-		if not data or int(data['seen']) < now-(60*3):
+		if not data or int(data['seen']) < now-(60*2):
 			r.delete('redtorrent:peer:'+ peer)
 			r.srem(seeders_key, peer)
 			r.srem(leechers_key, peer)
@@ -123,7 +123,9 @@ def announce(request):
 			peers_l.append({'ip': peer['ip'], 'port': int(peer['port'])})
 
 	else:
-		peers_l = peers_data
+		peers_l = []
+		for peer in peers_data:
+			peers_l.append({'peer id': peer['peer_id'], 'ip': peer['ip'], 'port': peer['port']})
 
 
 	try:
