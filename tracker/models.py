@@ -3,7 +3,7 @@ from django import forms
 
 class AnnounceForm(forms.Form):
 	info_hash = forms.CharField(max_length=100)
-	peer_id = forms.CharField(max_length=20)
+	peer_id = forms.CharField(max_length=100)
 	port = forms.IntegerField()
 	uploaded = forms.IntegerField()
 	downloaded = forms.IntegerField()
@@ -16,3 +16,9 @@ class AnnounceForm(forms.Form):
 	key = forms.CharField(max_length=20, required=False)
 	trackerid = forms.CharField(max_length=20, required=False)
 	supportcrypto = forms.BooleanField(required=False, initial=False)
+
+	def clean_event(self):
+		data = self.cleaned_data['event']
+		if data not in ['started', 'completed', 'stopped'] and len(data.strip()) > 0:
+			raise forms.ValidationError("event '%s' is invalid." % data)
+		return data
