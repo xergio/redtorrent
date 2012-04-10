@@ -2,14 +2,14 @@
 import django
 from django.shortcuts import render_to_response
 from django.http import HttpResponse
-from tracker.models import AnnounceForm, ScrapeForm
+from tracker.models import AnnounceForm, ScrapeForm, Store
 
 import sys
 import socket
 import bencode
-import redis
 import struct
 import time
+import redis
 
 """
 
@@ -57,56 +57,50 @@ def announce(request):
 		raise Exception(ann.errors)
 
 	qs = ann.cleaned_data
-	r = redis.Redis(host='localhost')
-	seeders_key = 'redtracker:seeders:'+ qs['info_hash']
-	leechers_key = 'redtracker:leechers:'+ qs['info_hash']
+	r = Store(host='localhost')
+	r.set_info(qs['info_hash'], qs['peer_id'])
 
 
 	# save ALL the params!
-	s = qs.copy()
-	s.update({'seen': int(time.time())})
-	r.hmset(ann.peerid(), s)
+	r.save_peer(qs)
 
 
 	# save ALL the states!
 	if qs['event'] == 'completed':
-		r.sadd(seeders_key, qs['peer_id'])
-		r.srem(leechers_key, qs['peer_id'])
+		r.add_seeder()
+		r.del_leecher()
 
 	elif qs['event'] == 'stopped':
-		r.srem(seeders_key, qs['peer_id'])
-		r.srem(leechers_key, qs['peer_id'])
-		r.delete(ann.peerid())
+		r.del_seeder()
+		r.del_leecher()
+		r.delete_peer()
 
 	else:
 		if qs['left'] == 0:
-			r.sadd(seeders_key, qs['peer_id'])
-			r.srem(leechers_key, qs['peer_id'])
+			r.add_seeder()
+			r.del_leecher()
 		else:
-			r.sadd(seeders_key, qs['peer_id'])
-			r.sadd(leechers_key, qs['peer_id'])
-
+			r.add_seeder()
+			r.add_leecher()
+	
 
 	# get ALL the peers!
-	peer_ids = set()
-	nmembers = r.scard(seeders_key)
-	i = 0
+	nmembers = r.len_seeders()
 	if nmembers < qs['numwant']:
-		peer_ids = r.smembers(seeders_key)
+		peer_ids = r.all_seeders()
 	elif nmembers > 0:
-		while len(peer_ids) < qs['numwant'] and i < 1000:
-			peer_ids.add(r.srandmember(seeders_key))
-			i += 1
+		peer_ids = r.get_seeders(qs['numwant'])
+	else:
+		peer_ids = set()
+
 
 	# clean ALL the peers!
 	peers_data = []
 	now = time.time()
-	for peer in peer_ids:
-		data = r.hgetall('redtorrent:peer:'+ peer)
+	for peer_id in peer_ids:
+		data = r.get_peer(peer_id)
 		if not data or int(data['seen']) < now-(60*2):
-			r.delete('redtorrent:peer:'+ peer)
-			r.srem(seeders_key, peer)
-			r.srem(leechers_key, peer)
+			r.del_peer(peer_id)
 		else:
 			peers_data.append(data)
 
@@ -142,7 +136,7 @@ def announce(request):
 
 
 def scrape(request):
-	qs = request.GET.copy()
+	"""qs = request.GET.copy()
 	scp = ScrapeForm(qs.dict())
 
 	if not scp.is_valid():
@@ -164,7 +158,8 @@ def scrape(request):
 			}
 		}),
 		content_type = 'text/plain'
-	)
+	)"""
+	return render_to_response('tracker/scrape.html', {})
 
 
 def response_fail(reason):
